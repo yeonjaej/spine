@@ -22,7 +22,7 @@ class ConversionDistanceProcessor(PostBase):
     name = 'shower_conversion_distance'
     aliases = ['shower_separation_processor']
     
-    def __init__(self, threshold=-1.0, vertex_mode='vertex'):
+    def __init__(self, threshold=-1.0, vertex_mode='vertex_points'):
         """Specify the EM shower conversion distance threshold and
         the type of vertex to use for the distance calculation.
 
