@@ -105,6 +105,34 @@ def get_cluster_primary_label_batch(data, clusts, column):
     return TensorBatch(labels, clusts.counts)
 
 
+def get_cluster_closest_primary_label_batch(data, coord_label, clusts, primary_ids):
+    """Batched version of :func:`get_cluster_cloest_primary_label`.
+
+    Parameters
+    ----------
+    data : TensorBatch
+        Batch of cluster label data tensor
+    coord_label : TensorBatch
+        Batch of particle end points labels
+    clusts : IndexBatch
+        (C) List of cluster indexes
+    primary_ids : TensorBatch
+        (C) Existing list of primary IDs (the new labels will be a subset)
+
+    Returns
+    -------
+    TensorBatch
+        (C) List of cluster primary labels
+    """
+    labels = np.empty(len(clusts.index_list), dtype=np.int64)
+    for b in range(data.batch_size):
+        lower, upper = clusts.edges[b], clusts.edges[b+1]
+        labels[lower:upper] = get_cluster_closest_primary_label(
+                data[b], coord_label[b], clusts[b], primary_ids[b])
+
+    return TensorBatch(labels, clusts.counts)
+
+
 def get_cluster_points_label_batch(data, coord_label, clusts,
                                    random_order=True):
     """Batched version of :func:`get_cluster_points_label`
@@ -320,8 +348,7 @@ def _get_cluster_label(data: nb.float64[:,:],
 
 
 @numbafy(cast_args=['data'], list_args=['clusts'])
-def get_cluster_primary_label(data, clusts, column, cluster_column=CLUST_COL,
-                              group_column=GROUP_COL):
+def get_cluster_primary_label(data, clusts, column):
     """Returns the majority label of the primary cluster of the group each
     cluster belongs to, specified in the requested data column of the label
     tensor.
@@ -365,6 +392,67 @@ def _get_cluster_primary_label(data: nb.float64[:,:],
             # If there is no primary contribution, use the whole cluster
             v, cts = nbl.unique(data[clusts[i], column])
         labels[i] = v[np.argmax(cts)]
+
+    return labels
+
+
+@numbafy(cast_args=['data', 'coord_label'], list_args=['clusts'])
+def get_cluster_closest_primary_label(data, coord_label, clusts, primary_ids):
+    """Sets the primary label of clusters based on their proximity to the start
+    point of the particle which created them.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Cluster label data tensor
+    coord_label : np.ndarray
+        Coordinate labels associated with each particle
+    clusts : List[np.ndarray]
+        (C) List of cluster indexes
+    primary_ids : np.ndarray
+        (C) Existing list of primary IDs (the new labels will be a subset)
+
+    Returns
+    -------
+    np.ndarray
+        (C) List of cluster primary labels
+    """
+    if not len(clusts):
+        return np.empty(0, dtype=data.dtype)
+
+    return _get_cluster_closest_primary_label(
+            data, coord_label, clusts, primary_ids)
+
+@nb.njit(cache=True)
+def _get_cluster_closest_primary_label(data: nb.float64[:,:],
+                                       coord_label: nb.float64[:,:],
+                                       clusts: nb.types.List(nb.int64[:]),
+                                       primary_ids: nb.float64[:]) -> (
+                                               nb.float64[:]):
+
+    # Loop over the unique primary cluster groups
+    primary_index = np.where(primary_ids == 1)[0]
+    group_ids = _get_cluster_label(data, clusts, GROUP_COL)[primary_index]
+    labels = primary_ids.copy()
+    voxels = data[:, COORD_COLS]
+    points = coord_label[:, COORD_COLS]
+    for g in np.unique(group_ids.astype(np.int64)):
+        # If the group index does not exist in the points, do not touch labels
+        group_index = primary_index[group_ids == g]
+        if g < 0 or g >= len(points):
+            continue
+
+        # Get the coordinates of the start point
+        start_point = points[g].reshape(-1, 3)
+
+        # Minimize the point-cluster distances
+        dists = np.empty(len(group_index), dtype=data.dtype)
+        for i, c in enumerate(group_index):
+            dists[i] = np.min(nbl.cdist(start_point, voxels[clusts[c]]))
+
+        # Label the closest cluster as the only primary cluster
+        labels[group_index] = 0
+        labels[group_index[np.argmin(dists)]] = 1
 
     return labels
 
@@ -947,6 +1035,36 @@ def cluster_dedx(voxels: nb.float64[:,:],
 
     return np.sum(values)/np.max(dist_mat)
 
+
+@nb.njit(cache=True)
+def cluster_dedx2(voxels: nb.float64[:,:],
+                 values: nb.float64[:],
+                 start: nb.float64[:],
+                 max_dist: nb.float64=5.0) -> nb.types.Tuple((nb.float64, nb.float64)):
+    # If max_dist is set, limit the set of voxels to those within a sphere of radius max_dist                                                                                     
+    assert voxels.shape[1] == 3, (
+            "The shape of the input is not compatible with voxel coordinates.")
+
+    dist_mat = nbl.cdist(start.reshape(1,-1), voxels).flatten()
+    if max_dist > 0:
+        voxels = voxels[dist_mat <= max_dist]
+        if len(voxels) < 2:
+            return 0., 0.
+        values = values[dist_mat <= max_dist]
+        dist_mat = dist_mat[dist_mat <= max_dist]
+
+    if np.max(dist_mat) == 0.:
+        return 0., 0.
+
+        # Calculate sum of values
+    sum_values = float(np.sum(values))
+    
+    # Calculate max distance
+    max_distance = float(np.max(dist_mat))
+    
+    return sum_values, max_distance
+
+        
 
 @numbafy(cast_args=['data'], list_args=['clusts'],
          keep_torch=True, ref_arg='data')

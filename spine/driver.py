@@ -134,10 +134,6 @@ class Driver:
             self.ana = AnaManager(
                     ana, log_dir=self.log_dir, prefix=self.log_prefix)
 
-    def __len__(self):
-        """Returns the number of events in the underlying reader object."""
-        return len(self.reader)
-
     def process_config(self, io, base=None, model=None, build=None,
                        post=None, ana=None, rank=None):
         """Reads the configuration and dumps it to the logger.
@@ -457,6 +453,51 @@ class Driver:
         log_path = os.path.join(self.log_dir, log_name)
         self.logger = CSVWriter(log_path, overwrite=self.overwrite_log)
 
+    def __len__(self):
+        """Returns the number of events in the underlying reader object.
+
+        Returns
+        -------
+        int
+            Number of elements in the underlying loader/reader.
+        """
+        return len(self.reader)
+
+    def __iter__(self):
+        """Resets the counter and returns itself.
+
+        Returns
+        -------
+        object
+            The Driver itself
+        """
+        # If a loader is used, reinitialize it. Otherwise set an entry counter
+        if self.loader is not None:
+            self.loader_iter = iter(self.loader)
+            self.counter = None
+        else:
+            self.counter = 0
+
+        return self
+
+    def __next__(self):
+        """Defines how to process the next entry in the iterator.
+
+        Returns
+        -------
+        Union[dict, List[dict]]
+            Either one combined data dictionary, or one per entry in the batch
+        """
+        # If there are more iterations to go through, return data
+        if self.counter < len(self):
+            data = self.process(self.counter)
+            if self.counter is not None:
+                self.counter += 1
+
+            return data
+
+        raise StopIteration
+
     def run(self):
         """Loop over the requested number of iterations, process them."""
         # To run the loop, must know how many times it must be done
@@ -496,7 +537,8 @@ class Driver:
             # Release the memory for the next iteration
             data = None
 
-    def process(self, entry=None, run=None, event=None, iteration=None):
+    def process(self, entry=None, run=None, subrun=None, event=None,
+                iteration=None, duplicate_index=None):
         """Process one entry or a batch of entries.
 
         Run single step of main SPINE driver. This includes data loading,
@@ -509,6 +551,8 @@ class Driver:
             Entry number to load
         run : int, optional
             Run number to load
+        subrun : int, optional
+            Subrun number to load
         event : int, optional
             Event number to load
         iteration : int, optional
@@ -524,7 +568,8 @@ class Driver:
         self.watch.start('iteration')
 
         # 1. Load data
-        data = self.load(entry, run, event)
+        data = self.load(entry, run, subrun, event, 
+                         duplicate_index=duplicate_index)
 
         # 2. Pass data through the model
         if self.model is not None:
@@ -572,7 +617,8 @@ class Driver:
         # Return
         return data
 
-    def load(self, entry=None, run=None, event=None):
+    def load(self, entry=None, run=None, subrun=None, event=None,
+             duplicate_index=None):
         """Loads one batch/entry to process.
 
         If the model is run on the fly, the data is batched. Otherwise,
@@ -584,6 +630,8 @@ class Driver:
             Entry number, only valid with reader
         run : int, optional
             Run number, only valid with reader
+        subrun : int, optional
+            Subrun number to load
         event : int, optional
             Event number, only valid with reader
 
@@ -595,9 +643,10 @@ class Driver:
         # Dispatch to the appropriate loader
         if self.loader is not None:
             # Can only load batches sequentially, not by index
-            assert (entry is None and run is None and event is None), (
-                    "When calling the loader, no way to specify a specific "
-                    "entry or run/event pair.")
+            assert (entry is None and run is None and subrun is None and
+                    event is None), (
+                    "When calling the loader, there is no way to request a "
+                    "specific entry or run/subrun/event triplet.")
 
             # Initialize the loader, if necessary
             if self.loader_iter is None:
@@ -611,16 +660,16 @@ class Driver:
         else:
             # Must provide either entry number or both run and event numbers
             assert ((entry is not None) or
-                    (run is not None and event is not None)), (
-                           "Provide either the entry number or both the "
-                           "run number and the event number to read.")
+                    (run is not None and subrun is not None and event is not None)), (
+                           "Provide either the entry number or the run, subrun "
+                           "and event number to read.")
 
             # Read an entry
             self.watch.start('read')
             if entry is not None:
                 data = self.reader.get(entry)
             else:
-                data = self.reader.get_run_event(run, event)
+                data = self.reader.get_run_event(run, subrun, event, duplicate_index=duplicate_index)
             self.watch.stop('read')
 
         return data
@@ -640,10 +689,10 @@ class Driver:
             List of integer entry IDs to add to the index
         skip_entry_list : list, optional
             List of integer entry IDs to skip from the index
-        run_event_list: list((int, int)), optional
-            List of [run, event] pairs to add to the index
-        skip_run_event_list: list((int, int)), optional
-            List of [run, event] pairs to skip from the index
+        run_event_list: list((int, int, int)), optional
+            List of (run, subrun, event) triplets to add to the index
+        skip_run_event_list: list((int, int, int)), optional
+            List of (run, subrun, event) triplets to skip from the index
         """
         # Simply change the underlying entry list
         self.reader.process_entry_list(
