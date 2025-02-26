@@ -1240,7 +1240,7 @@ def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3, simple=False)
     if len(voxels_dedx) < 2:
         if simple:
             return float('-inf')
-        return 0., 0., 0., len(voxels_de)
+        return 0., 0., 0., len(voxels_dedx)
 
     # project the voxels within the sphere on reco direction
     p_voxels = np.dot(voxels_dedx - start, reco_dir)
