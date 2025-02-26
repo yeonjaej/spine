@@ -1076,14 +1076,14 @@ def cluster_dedx_legacy(voxels,
         voxels = voxels[dist_mat <= max_dist]
         if len(voxels) < 2:
             if simple:
-                return 0./0.
+                return float('-inf')
             return 0., 0., 0.
         values = values[dist_mat <= max_dist]
         dist_mat = dist_mat[dist_mat <= max_dist]
 
     if np.max(dist_mat) == 0.:
         if simple:
-            return 0./0.
+            return float('-inf')
         return 0., 0., 0.
 
         # Calculate sum of values
@@ -1145,7 +1145,7 @@ def cluster_dedx_DBScan_PCA(voxels,
     # if start_cluster is not found, return
     if start_clust == -1:
         if simple:
-            return 0./0.
+            return float('-inf')
         if detailed:
             return 0., 0., 0., 0., 0., -1, [0.,0.,0.,], [0.,0.,0.]
         return 0., 0., 0., 0., 0., -1
@@ -1162,7 +1162,7 @@ def cluster_dedx_DBScan_PCA(voxels,
     # if start_cluster voxels within the dedx distance < 3, return
     if len(voxels_clust)<3:
         if simple:
-            return 0./0.
+            return float('-inf')
         if detailed:
             return 0., 0., 0., 0., 0., -1, [0.,0.,0.,], [0.,0.,0.]
         return 0., 0., 0., 0., 0., len(voxels_clust)#, 0., 0., 0.
@@ -1239,7 +1239,7 @@ def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3, simple=False)
     # return if less than 2 voxels within the sphere
     if len(voxels_dedx) < 2:
         if simple:
-            return 0./0.
+            return float('-inf')
         return 0., 0., 0., len(voxels_de)
 
     # project the voxels within the sphere on reco direction
@@ -1253,7 +1253,7 @@ def cluster_dedx_dir(voxels, values, start, reco_dir, dedx_dist=3, simple=False)
     # if less than 2 voxels in the top hemisphere, return
     if len(voxels_de) < 2:
         if simple:
-            return 0./0.
+            return float('-inf')
         return 0., 0., 0., len(voxels_de)
 
     # project the top hemisphere voxels on the reco direction
