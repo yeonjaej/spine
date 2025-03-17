@@ -24,10 +24,16 @@ class InteractionBase:
     ----------
     particles : List[object]
         List of particles that make up the interaction
-    particle_ids : np.ndarray, 
+    primary_particles: List[object]
+        List of primary particles associated with the interaction
+    particle_ids : np.ndarray
         List of Particle IDs that make up this interaction
+    primary_particle_ids : np.ndarray
+        List of primary Particle IDs associated with this interaction
     num_particles : int
         Number of particles that make up this interaction
+    num_primary_particles : int
+        Number of primary particles associated with this interaction
     particle_counts : np.ndarray
         (P) Number of particles of each species in this interaction
     primary_particle_counts : np.ndarray
@@ -44,6 +50,8 @@ class InteractionBase:
         (F) Indices of the optical volumes the flashes where recorded in
     flash_times : np.ndarray
         (F) Times at which the flashes occurred in microseconds
+    flash_scores : np.ndarray
+        (F) Flash matching quality scores reported for each match
     flash_total_pe : float
         Total number of photoelectrons associated with the flash
     flash_hypo_pe : float
@@ -52,11 +60,15 @@ class InteractionBase:
         String representing the interaction topology
     """
     particles: List[object] = None
+    primary_particles: List[object] = None
     particle_ids: np.ndarray = None
+    primary_particle_ids: np.ndarray = None
     num_particles: int = None
+    num_primary_particles: int = None
     particle_counts: np.ndarray = None
     primary_particle_counts: np.ndarray = None
     vertex: np.ndarray = None
+    vertex_alt: np.ndarray = None
     is_fiducial: bool = False
     is_flash_matched: bool = False
     flash_ids: np.ndarray = None
@@ -69,25 +81,26 @@ class InteractionBase:
 
     # Fixed-length attributes
     _fixed_length_attrs = (
-            ('vertex', 3), ('particle_counts', len(PID_LABELS) - 1),
+            ('vertex', 3), ('vertex_alt', 3), ('particle_counts', len(PID_LABELS) - 1),
             ('primary_particle_counts', len(PID_LABELS) - 1)
     )
 
     # Variable-length attributes as (key, dtype) pairs
     _var_length_attrs = (
-            ('particles', object), ('particle_ids', np.int32),
+            ('particles', object), ('primary_particles', object),
+            ('particle_ids', np.int32), ('primary_particle_ids', np.int32),
             ('flash_ids', np.int32), ('flash_volume_ids', np.int32),
             ('flash_times', np.float32), ('flash_scores', np.float32)
     )
 
     # Attributes specifying coordinates
-    _pos_attrs = ('vertex',)
+    _pos_attrs = ('vertex', 'vertex_alt')
 
     # Boolean attributes
     _bool_attrs = ('is_fiducial', 'is_flash_matched')
 
     # Attributes that must never be stored to file
-    _skip_attrs = ('particles',)
+    _skip_attrs = ('particles', 'primary_particles')
 
     def __str__(self):
         """Human-readable string representation of the interaction object.
@@ -109,6 +122,36 @@ class InteractionBase:
         return info
 
     @property
+    def primary_particles(self):
+        """List of primary particles associated with this interaction.
+
+        Returns
+        -------
+        List[obect]
+            List of primary Particle objects associated with this interaction
+        """
+        return [part for part in self.particles if part.is_primary]
+
+    @primary_particles.setter
+    def primary_particles(self, primary_particles):
+        pass
+
+    @property
+    def primary_particle_ids(self):
+        """List of primary Particle IDs associated with this interaction.
+
+        Returns
+        -------
+        np.darray
+            List of primary Particle IDs associated with this interaction
+        """
+        return np.array([part.id for part in self.primary_particles])
+
+    @primary_particle_ids.setter
+    def primary_particle_ids(self, primary_particle_ids):
+        pass
+
+    @property
     def num_particles(self):
         """Number of particles that make up this interaction.
 
@@ -121,6 +164,21 @@ class InteractionBase:
 
     @num_particles.setter
     def num_particles(self, num_particles):
+        pass
+
+    @property
+    def num_primary_particles(self):
+        """Number of primary particles associated with this interaction.
+
+        Returns
+        -------
+        int
+            Number of particles associated with the interaction instance
+        """
+        return len(self.primary_particle_ids)
+
+    @num_primary_particles.setter
+    def num_primary_particles(self, num_primary_particles):
         pass
 
     @property
@@ -153,8 +211,8 @@ class InteractionBase:
             (P) Number of primary particles of each PID
         """
         counts = np.zeros(len(PID_LABELS) - 1, dtype=int)
-        for part in self.particles:
-            if part.pid > -1 and part.is_primary and part.is_valid:
+        for part in self.primary_particles:
+            if part.pid > -1 and part.is_valid:
                 counts[part.pid] += 1
 
         return counts
@@ -222,6 +280,19 @@ class InteractionBase:
 @inherit_docstring(RecoBase, InteractionBase)
 class RecoInteraction(InteractionBase, RecoBase):
     """Reconstructed interaction information."""
+    
+    leading_shower_vertex_distance: float = -1.
+    leading_shower_vertex_distance_relaxed: float = -1.
+    leading_shower_vertex_distance_alt: float = -1.
+    leading_shower_dedx: float = -1.
+    leading_shower_dedx_legacy: float = -1.
+    leading_shower_dedx_dbscan: float = -1.
+    leading_shower_spread: float = -1.
+    leading_shower_axial_pearsonr: float = -1.
+    leading_shower_global_spread: float = -1.
+    leading_shower_trunk_validity: float = -1.
+    leading_shower_score: float = -1.
+    leading_shower_vertex_angle: float = -1.
 
     # Attributes that must never be stored to file
     _skip_attrs = (
@@ -269,10 +340,12 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     """
     nu_id: int = -1
     reco_vertex: np.ndarray = None
+    reco_vertex_alt: np.ndarray = None
 
     # Fixed-length attributes
     _fixed_length_attrs = (
             ('reco_vertex', 3),
+            ('reco_vertex_alt', 3),
             *Neutrino._fixed_length_attrs,
             *InteractionBase._fixed_length_attrs
     )
@@ -286,6 +359,7 @@ class TruthInteraction(Neutrino, InteractionBase, TruthBase):
     # Attributes specifying coordinates
     _pos_attrs = (
             'reco_vertex',
+            'reco_vertex_alt',
             *InteractionBase._pos_attrs,
             *Neutrino._pos_attrs
     )

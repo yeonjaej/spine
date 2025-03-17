@@ -1,8 +1,9 @@
 """Module which supports likelihood-based flash matchin (OpT0Finder)."""
 
-import os, sys
+import os
+import sys
+
 import numpy as np
-import time
 
 
 class LikelihoodFlashMatcher:
@@ -110,7 +111,7 @@ class LikelihoodFlashMatcher:
             raise FileNotFoundError(
                     f"Cannot find flash-matcher config: {cfg}")
 
-        cfg = flashmatch.CreatePSetFromFile(cfg)
+        cfg = flashmatch.CreateFMParamsFromFile(cfg)
 
         # Initialize The OpT0Finder flash match manager
         self.mgr = flashmatch.FlashMatchManager()
@@ -119,7 +120,7 @@ class LikelihoodFlashMatcher:
         # Get the light path algorithm to produce QCluster_t objects
         self.light_path = flashmatch.CustomAlgoFactory.get().create(
                 'LightPath', 'ToyMCLightPath')
-        self.light_path.Configure(cfg.get['flashmatch::PSet']('LightPath'))
+        self.light_path.Configure(cfg.get['flashmatch::FMParams']('LightPath'))
 
     def get_matches(self, interactions, flashes):
         """Find TPC interactions compatible with optical flashes.
@@ -152,7 +153,9 @@ class LikelihoodFlashMatcher:
         # Build result, return
         result = []
         for m in self.matches:
-            result.append((interactions[m.tpc_id], flashes[m.flash_id], m))
+            tpc_id = self.qcluster_v[m.tpc_id].idx
+            flash_id = self.flash_v[m.flash_id].idx
+            result.append((interactions[tpc_id], flashes[flash_id], m))
 
         return result
 
@@ -173,17 +176,17 @@ class LikelihoodFlashMatcher:
         # Loop over the interacions
         from flashmatch import flashmatch
         qcluster_v = []
-        for inter in interactions:
+        for idx, inter in enumerate(interactions):
             # Produce a mask to remove negative value points (can happen)
             valid_mask = np.where(inter.depositions > 0.)[0]
 
-            # If the interaction has less than 2 points, skip
+            # Skip interactions with less than 2 points
             if len(valid_mask) < 2:
                 continue
 
             # Initialize qcluster
             qcluster = flashmatch.QCluster_t()
-            qcluster.idx = int(inter.id)
+            qcluster.idx = idx
             qcluster.time = 0
 
             # Get the point coordinates
@@ -242,8 +245,8 @@ class LikelihoodFlashMatcher:
         for idx, f in enumerate(flashes):
             # Initialize the Flash_t object
             flash = flashmatch.Flash_t()
-            flash.idx = int(f.id)  # Assign a unique index
-            flash.time = f.time  # Flash timing, a candidate T0
+            flash.idx = idx
+            flash.time = f.time
 
             # Assign the flash position and error on this position
             flash.x, flash.y, flash.z = 0, 0, 0

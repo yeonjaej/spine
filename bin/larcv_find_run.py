@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Counts the number of events in a LArCV dataset."""
+"""Builds a list of file which make a data run."""
 
 import argparse
 
@@ -8,8 +8,8 @@ from ROOT import TFile # pylint: disable=E0611
 from larcv import larcv # pylint: disable=W0611
 
 
-def main(source, source_list, tree_name):
-    """Checks the number of entries in a file/list of files.
+def main(source, source_list, output, run_number, tree_name):
+    """Loops over a list of files and finds those which belong to a certain run.
 
     Parameters
     ----------
@@ -17,8 +17,12 @@ def main(source, source_list, tree_name):
         Path or list of paths to the input files
     source_list : str
         Path to a text file containing a list of data file paths
+    output : str
+        Path to the output text file with the list of run files
+    run_number : int
+        Run number to look for
     tree_name : str
-        Name of the tree to use as a reference to count the number of entries.
+        Name of the tree to use as a reference to get the run number from.
         If not specified, takes the first tree in the list.
     """
     # If using source list, read it in
@@ -26,9 +30,12 @@ def main(source, source_list, tree_name):
         with open(source_list, 'r', encoding='utf-8') as f:
             source = f.read().splitlines()
 
+    # Initialize the output text file
+    out_file = open(output, 'w', encoding='utf-8')
+
     # Loop over the list of files in the input
-    total_entries = 0
-    print(f"\nCounting entries in {len(source)} file(s):")
+    print(f"\nLooking for run {run_number} in {len(source)} files:")
+    run_files = []
     for file_path in tqdm(source):
         # Get the tree to get the number of entries from
         f = TFile(file_path, 'r')
@@ -36,16 +43,24 @@ def main(source, source_list, tree_name):
             key = [key.GetName() for key in f.GetListOfKeys()][0]
         else:
             key = f'{tree_name}_tree'
+        branch_key = key.replace('_tree', '_branch')
 
-        # Count the number of entries in this file
-        num_entries = getattr(f, key).GetEntries()
+        # Check the run number of the first entry in the file
+        tree = getattr(f, key)
+        tree.GetEntry(0)
+        run = getattr(tree, branch_key).run()
         f.Close()
 
-        # Dump number for this file, increment
-        tqdm.write(f"- Counted {num_entries} entries in {file_path}")
-        total_entries += num_entries
+        # If the file contains entries from the correct run, append
+        if run == run_number:
+            tqdm.write(f"- Good file: {file_path}")
+            run_files.append(file_path)
+            out_file.write(f'{file_path}\n')
 
-    print(f"\nTotal number of entries: {total_entries}")
+    print(f"\nFound {len(run_files)} run {run_number} files.")
+
+    # Close text file
+    out_file.close()
 
 
 if __name__ == "__main__":
@@ -60,6 +75,14 @@ if __name__ == "__main__":
                        help='Path to a text file of data file paths',
                        type=str)
 
+    parser.add_argument('--output', '-o',
+                        help='Path to the output text file with the run file list',
+                        type=str, required=True)
+
+    parser.add_argument('--run-number',
+                        help='Run number to look for',
+                        type=int, required=True)
+
     parser.add_argument('--tree-name',
                         help='TTree name used to count the entries.',
                         type=str)
@@ -67,4 +90,5 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Execute the main function
-    main(args.source, args.source_list, args.tree_name)
+    main(args.source, args.source_list, args.output, args.run_number,
+         args.tree_name)
